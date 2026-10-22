@@ -16,6 +16,7 @@
 diabetes-readmission-dashboard/
 ├─ index.html          대시보드 본체 (데이터 내장, 브라우저에서 바로 열기)
 ├─ PROMPT.md           같은 결과를 다시 만드는 재현 프롬프트
+├─ REPRO_PROMPT_20261022.md   제작·스타일·배포·결과 요약까지 담은 상세 재현 프롬프트(2026-10-22)
 ├─ data/sample_5rows.csv   대시보드에 쓴 원본 데이터 5행 샘플
 └─ scripts/prep_data.py    UCI 원본을 내려받아 대시보드용 컬럼 JSON으로 변환
 ```
