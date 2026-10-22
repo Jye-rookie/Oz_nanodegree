@@ -12,6 +12,7 @@
 | 핵심 질문 | 어떤 입원이 30일 안에 재입원으로 이어지는가 |
 | 디자인 | MongoDB LeafyGreen 디자인 시스템(https://www.mongodb.design) 기준, 라이트·다크 모드 |
 | 배포 | GitHub 저장소 main 브랜치 + GitHub Pages(Deploy from a branch, main, / root) |
+| 동적 버전 | Supabase(Postgres) + 조회 함수(RPC). `dynamic/index.html`이 필터를 바꿀 때마다 DB에서 집계를 새로 조회 (아래 [L]) |
 
 ## 프롬프트
 
@@ -19,7 +20,7 @@
 당뇨 환자의 30일 내 재입원 위험요인을 임상연구자가 후향적으로 탐색하는 인터랙티브 대시보드를 단일 HTML 파일로 만들고, GitHub 저장소에 올려 GitHub Pages로 공개해줘. 모든 단계에서 아래 합의 사항을 따르고, 되돌리기 어려운 작업(다운로드, push, 저장소 설정 변경)은 실행 전에 나에게 확인받아줘.
 
 [A. 진행 순서]
-1. 데이터 내려받기와 확인  2. 인터뷰로 분석 기준 확정  3. 전처리  4. 대시보드 제작  5. 디자인 시스템 적용  6. 폴더 구조 제안 후 확인  7. 커밋과 push  8. Pages 활성화와 주소 확인  9. 루트 주소 이동 페이지 추가  10. 결과 요약
+1. 데이터 내려받기와 확인  2. 인터뷰로 분석 기준 확정  3. 전처리  4. 대시보드 제작  5. 디자인 시스템 적용  6. 폴더 구조 제안 후 확인  7. 커밋과 push  8. Pages 활성화와 주소 확인  9. 루트 주소 이동 페이지 추가  10. 결과 요약  11. (이어서) Supabase 연동 동적 버전([L])
 
 [B. 데이터]
 - 출처: https://archive.ics.uci.edu/static/public/296/diabetes+130-us+hospitals+for+years+1999-2008.zip (zip 약 3.2MB, 풀면 diabetic_data.csv 약 19MB와 IDS_mapping.csv)
@@ -93,6 +94,8 @@ Oz_nanodegree/ (저장소 루트)
    ├─ index.html           대시보드 본체(데이터 내장)
    ├─ PROMPT.md            재현 프롬프트
    ├─ data/sample_5rows.csv   원본에서 뽑은 5행 샘플(재입원 2건 + 그 외 3건, 인종 미상 제외, 대시보드가 쓴 22개 컬럼, 값은 원본 그대로)
+   ├─ dynamic/index.html     Supabase 연동 동적 버전([L])
+   ├─ supabase/              config.toml, migrations/*.sql ([L])
    └─ scripts/prep_data.py    UCI zip을 받아 build/cols.json을 만드는 스크립트(사용법을 파일 위에 주석으로 적고, 실행해 위 기준 건수가 나오는지 확인)
 원본 diabetic_data.csv는 올리지 않는다.
 
@@ -113,6 +116,40 @@ Oz_nanodegree/ (저장소 루트)
 
 [K. 결과 요약 (자유 형식, 독자·KPI·인사이트)]
 독자는 임상연구자, KPI는 재입원률 11.2%를 중심으로 입원/재입원 건수·환자 수·평균 입원일수다. 인사이트는 아래 기준값 표의 수치로 쓴다. 5줄 요약도 요청받으면 줄여서 쓴다. 연관성이지 인과가 아니고, 1999–2008년 미국 병원 데이터이며, HbA1c는 83%가 미검사라 단정하지 않는다는 한계를 반드시 포함한다.
+
+[L. Supabase 연동 동적 버전 (CLI 사용, 정적 버전은 그대로 유지)]
+사전 준비(사용자가 직접): supabase.com에서 프로젝트 생성, DB 비밀번호는 비밀번호 관리자에 보관, 터미널에서 `npx supabase login`(브라우저 인증), 프로젝트 주소의 ref를 에이전트에 알려준다. secret/service_role 키와 DB 비밀번호는 에이전트에 붙여넣지 않고 저장소에도 올리지 않는다.
+에이전트가 하는 일(되돌리기 어려운 단계는 실행 전에 확인받는다):
+1. CLI는 `npx supabase`로 쓴다(설치 없이). `diabetes-readmission-dashboard/` 에서 `supabase init`.
+2. `supabase migration new` 로 마이그레이션 2개를 만든다.
+   (1) create_encounters: `public.encounters`(enc bigint PK, pt bigint, age/sex/race/adm/src/dis/los/labs/proc/meds/nout/nemr/ninp/dg/ndx/a1c/ins/chg/dmed/rd smallint not null, icd text; 컬럼 의미는 [D]와 같다). 인덱스 pt, rd, age, dis, dg. RLS 활성화, anon·authenticated 대상 `select` 정책 1개(using true). `revoke all on public.encounters from anon, authenticated` 후 `grant select` 만 부여(쓰기는 RLS와 권한 회수로 이중 차단).
+   (2) dashboard_functions: 모두 `language sql stable`, `set search_path = public`, 호출자 권한(RLS 적용), anon·authenticated 에 execute 부여.
+   - `enc_filtered(f jsonb)` returns setof encounters. 필터 jsonb 키: age, sex, adm, dis, dg (정수 배열, 빈 배열·없는 키 = 전체, 판정은 `f->'age' @> to_jsonb(e.age)`), exclude_dead(boolean, true 이면 dis<>4).
+   - `dashboard_stats(f jsonb)` returns jsonb: `{kpi:{n,k,pts,los_sum}, factors:{<key>:[{b,n,k}...]}, heat:[{a,b,n,k}...], dead:<dis=4 건수>}`. n=건수, k=rd=2 건수, pts=고유 pt, los_sum=입원일수 합. factors 키와 구간 b: ninp=least(ninp,3), nemr=least(nemr,2), nout=least(nout,2), los(<=3:0, <=7:1, 그 외 2), meds(<=10:0, <=20:1, 그 외 2), labs(<30:0, <50:1, 그 외 2), proc=least(proc,2), a1c, ins, chg, ndx(<=5:0, <=8:1, 그 외 2), dg, dis, src. 한 쿼리에서 `cross join lateral (values ...)` 로 14개 요인을 한꺼번에 집계한다. heat 의 a=least(ninp,3), b=입원일수 구간.
+   - `case_list(f, sort_key text default 'ninp', only_readmit boolean default false, lim integer default 40)` returns `{total, rows:[encounters 행...]}`. 정렬 키는 화이트리스트(los, meds, nemr, 그 외 ninp), 모두 내림차순 + 입원일수 내림차순 + enc. lim 은 1~200 으로 제한.
+   - `patient_history(p bigint)` returns jsonb 배열(해당 환자의 입원, enc 오름차순).
+3. 로컬 검증: Docker Desktop 실행 후 `supabase start`(필요한 서비스만), `supabase db reset` 으로 마이그레이션이 오류 없이 적용되는지 보고, `prep_data.py` 가 만든 `build/encounters.csv`(헤더 포함)를 로컬 DB에 `\copy` 로 넣은 뒤 기준값(아래 [M])과 같은지 확인한다. anon 역할로 delete·insert 가 permission denied 인지 확인한다. 끝나면 `supabase stop`.
+4. `prep_data.py` 는 cols.json 외에 encounters.csv(컬럼 순서 = 테이블 컬럼 순서)도 쓴다. `build/` 는 .gitignore 대상이다.
+5. 원격 반영(실행 전 확인): `supabase link --project-ref <ref>` -> `supabase db push --dry-run` -> 확인 후 `supabase db push`. `supabase migration list` 로 local/remote 가 같은지 본다.
+6. 데이터 적재(비밀번호 불필요): 원격에는 `supabase db query --linked -f <파일>` 로 SQL 을 실행할 수 있다. encounters.csv 를 2,000행씩 `insert into public.encounters (...) values ... on conflict (enc) do nothing;` 파일 51개로 나눠 차례로 실행하고, 끝나면 건수(101,766 / 71,518 / 11,357)를 확인한다.
+7. 키: `supabase projects api-keys --project-ref <ref> -o json` 에서 공개용 publishable 키(sb_publishable_...)만 화면 코드에 쓴다. 요청은 `POST {프로젝트 URL}/rest/v1/rpc/<함수>` 에 헤더 `apikey: <publishable 키>`, `Content-Type: application/json` 으로 보낸다. 원격에서도 anon 으로 insert/delete 가 401 이고 CORS preflight 가 200 인지 확인한다.
+8. `dynamic/index.html` 은 정적 `index.html` 의 마크업·CSS 를 그대로 쓰고 내장 데이터(`const C=...`)와 브라우저 집계 코드를 제거한 뒤 아래로 바꾼다.
+   - 필터를 jsonb 로 만들어 `dashboard_stats`, `case_list` 를 `Promise.all` 로 호출. 필터 변경 후 120ms 디바운스, 요청마다 일련번호를 두어 늦게 도착한 오래된 응답은 버린다.
+   - 조회 중에는 KPI·막대·히트맵·목록을 불투명도 0.55 로 흐리게, 실패하면 안내 박스(role="alert")와 "다시 시도" 버튼. `[hidden]{display:none!important}` 리셋을 둔다.
+   - 시작할 때 `dashboard_stats({})` 를 한 번 호출해 "전체" 재입원률을 KPI 안내에 쓴다. 케이스 상세는 선택할 때 `patient_history` 를 호출하고 불러오는 중 문구를 보인다. 목록의 icd 등 DB 문자열은 HTML 이스케이프한다.
+   - 신뢰구간(Wilson), 막대 색 규칙, 히트맵 농도는 [F]와 같이 화면에서 계산하고, DB 에서는 건수와 합계만 받는다. 제목은 "당뇨 재입원 케이스 탐색기 (Supabase)", 설명에 Supabase 조회임을 밝힌다.
+   - 단독 HTML 이므로 `<!doctype html>`, `<meta charset="utf-8">`, viewport 메타, `body{margin:0}` 를 넣는다(정적 `index.html` 에도 같은 헤더를 추가). 이를 빠뜨리면 글자가 깨지거나 여백이 어긋난다.
+9. 로컬 서버(`python3 -m http.server`)로 열어 KPI 와 필터 결과가 기준값과 같은지, 케이스 선택 시 같은 환자 기록이 나오는지 확인한 뒤(이 페이지는 외부 요청이 필요하므로 Claude 아티팩트 미리보기에서는 동작하지 않는다), 비밀 값 검색(sb_secret, service_role, eyJ..., 비밀번호) 후 확인받고 commit·push 한다. Pages 주소: `https://<사용자>.github.io/<저장소>/diabetes-readmission-dashboard/dynamic/`.
+10. README 에 동적 버전 절을 추가한다(구성 순서, 공개 키만 포함된다는 점, 무료 프로젝트는 오래 접속이 없으면 일시 중지되어 Supabase 대시보드에서 재개해야 한다는 점).
+
+[M. 동적 버전 검증 기준값]
+- 필터 없음: n 101,766 / k 11,357 / 환자 71,518 / 입원일수 합 447,362 / 사망·호스피스 2,423 (평균 입원일수 4.4일)
+- 직전 1년 입원 구간(0/1/2/3회 이상): 건수 67,630 / 19,521 / 7,566 / 7,049, 재입원 5,706 / 2,523 / 1,319 / 1,809
+- `exclude_dead=true`: n 99,343 / k 11,314 / 환자 69,990
+- 연령 [6,7] + 질환군 [4]: n 2,739 / k 365 (13.3%) / 환자 2,420 / 사망·호스피스 41 (평균 입원일수 5.0일)
+- 질환군 [4] 만: n 8,757 / k 1,137 / 환자 7,147
+- `patient_history(8222157)`: enc 2278392 한 건
+- 응답 시간: 집계 약 0.2~0.5초(첫 호출은 2~5초)
 ```
 
 ## 재현 시 확인할 기준값
