@@ -3,6 +3,7 @@
 사용법: python3 prep_data.py [출력 폴더]
 - 출처: https://archive.ics.uci.edu/dataset/296 (zip 약 3MB, 압축을 풀면 diabetic_data.csv 약 19MB)
 - 결과 cols.json 은 index.html 안의 `const C={...}` 와 같은 구조다.
+- encounters.csv 는 Supabase `public.encounters` 테이블에 가져오는 용도다(헤더 포함, 컬럼 순서 = 테이블 컬럼 순서).
 """
 import csv, io, json, sys, urllib.request, zipfile
 from pathlib import Path
@@ -58,5 +59,9 @@ for r in csv.DictReader(io.StringIO(text)):
         cols[k].append(v)
 
 (out / "cols.json").write_text(json.dumps(cols, separators=(',', ':')), encoding="utf-8")
+with (out / "encounters.csv").open("w", newline="", encoding="utf-8") as fh:
+    w = csv.writer(fh)
+    w.writerow(names)
+    w.writerows(zip(*(cols[k] for k in names)))
 n = len(cols['enc'])
-print(f"입원 {n:,}건, 환자 {len(set(cols['pt'])):,}명, 30일 내 재입원 {cols['rd'].count(2):,}건 -> {out/'cols.json'}")
+print(f"입원 {n:,}건, 환자 {len(set(cols['pt'])):,}명, 30일 내 재입원 {cols['rd'].count(2):,}건 -> {out/'cols.json'}, {out/'encounters.csv'}")

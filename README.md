@@ -18,12 +18,36 @@ diabetes-readmission-dashboard/
 ├─ PROMPT.md           같은 결과를 다시 만드는 재현 프롬프트
 ├─ REPRO_PROMPT_20261022.md   제작·스타일·배포·결과 요약까지 담은 상세 재현 프롬프트(2026-10-22)
 ├─ data/sample_5rows.csv   대시보드에 쓴 원본 데이터 5행 샘플
+├─ dynamic/index.html      Supabase(Postgres)에 연결된 동적 버전
+├─ supabase/               DB 마이그레이션(테이블, 읽기 전용 정책, 조회 함수)
 └─ scripts/prep_data.py    UCI 원본을 내려받아 대시보드용 컬럼 JSON으로 변환
 ```
 
 ### 실행
 
 `diabetes-readmission-dashboard/index.html` 파일을 브라우저로 엽니다. 서버나 설치는 필요 없습니다. 글꼴 일부(Source Code Pro)는 인터넷 연결이 있을 때 불러옵니다.
+
+### 동적 버전 (Supabase 연동)
+
+`diabetes-readmission-dashboard/dynamic/index.html`은 같은 화면이지만 필터를 바꿀 때마다 Supabase에서 집계를 새로 조회합니다. 정적 버전(`index.html`)은 그대로 두었습니다.
+
+- 데이터: `public.encounters` 테이블(입원 101,766건). 익명 사용자는 조회만 가능하고 쓰기 권한은 없습니다.
+- 집계: DB 함수 `dashboard_stats`, `case_list`, `patient_history`를 REST(RPC)로 호출합니다.
+- 화면 코드에는 공개용(publishable) 키만 들어 있습니다. `service_role`·`secret` 키와 DB 비밀번호는 저장소에 없습니다.
+- 인터넷 연결이 필요합니다. 무료 프로젝트는 오래 사용하지 않으면 일시 중지될 수 있어, 그때는 Supabase 대시보드에서 프로젝트를 재개해야 합니다.
+
+직접 구성하려면 Supabase 프로젝트를 만들고 아래 순서로 진행합니다.
+
+```bash
+cd diabetes-readmission-dashboard
+npx supabase login
+npx supabase link --project-ref <프로젝트 ref>
+npx supabase db push                       # 스키마와 조회 함수 적용
+python3 scripts/prep_data.py build         # build/encounters.csv 생성
+# build/encounters.csv 를 Supabase 대시보드의 Table Editor에서 public.encounters 로 가져오기
+```
+
+가져온 뒤 입원 101,766건, 환자 71,518명, `rd = 2` 11,357건인지 확인합니다.
 
 ### 데이터 다시 만들기
 

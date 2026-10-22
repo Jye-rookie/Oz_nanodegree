@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>당뇨 재입원 케이스 탐색기 (Supabase)</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Code+Pro:wght@400;500;600&display=swap">
+<style>
+/* layout: filter panel, KPI strip, risk-factor bars, interaction heatmap, case list with detail drawer.
+   style: MongoDB LeafyGreen foundations (palette, typography roles, dark-mode role table) */
+:root{
+  --bg:#ffffff; --bg2:#f9fbfa; --surface:#ffffff; --ink:#001e2b; --ink2:#3d4f58; --ink3:#5c6c75; --line:#e8edeb; --line2:#c1c7c6; --grid:#e8edeb;
+  --acc:#016bf8; --warn:#db3030; --green:#00684a; --link:#016bf8;
+  --chip:#e8edeb; --chip-on:#00684a; --chip-on-ink:#ffffff; --mute:#c1c7c6;
+  --f-sans:"Euclid Circular A","Helvetica Neue",Helvetica,Arial,"Apple SD Gothic Neo","Noto Sans KR","Malgun Gothic",sans-serif;
+  --f-serif:"MongoDB Value Serif",Georgia,"Times New Roman","Noto Serif KR","Apple SD Gothic Neo",serif;
+  --f-mono:"Source Code Pro",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#001e2b; --bg2:#112733; --surface:#112733; --ink:#e8edeb; --ink2:#c1c7c6; --ink3:#889397; --line:#3d4f58; --line2:#5c6c75; --grid:#1c2d38;
+  --acc:#0498ec; --warn:#ff6960; --green:#00ed64; --link:#0498ec;
+  --chip:#1c2d38; --chip-on:#00ed64; --chip-on-ink:#001e2b; --mute:#3d4f58; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#001e2b; --bg2:#112733; --surface:#112733; --ink:#e8edeb; --ink2:#c1c7c6; --ink3:#889397; --line:#3d4f58; --line2:#5c6c75; --grid:#1c2d38;
+  --acc:#0498ec; --warn:#ff6960; --green:#00ed64; --link:#0498ec;
+  --chip:#1c2d38; --chip-on:#00ed64; --chip-on-ink:#001e2b; --mute:#3d4f58; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-sans);font-size:14px;line-height:20px;
+  padding-inline:max(16px,env(safe-area-inset-left,0px)) max(16px,env(safe-area-inset-right,0px));padding-block:20px 48px}
+.wrap{max-width:1200px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+h1{font-family:var(--f-serif);font-size:28px;line-height:1.25;margin:0;font-weight:400;text-wrap:balance}
+.sub{color:var(--ink2);margin:3px 0 0;font-size:13px;max-width:78ch}
+.num{font-variant-numeric:tabular-nums;font-family:var(--f-mono)}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px 20px;min-width:0}
+.card h2{font-size:14px;margin:0 0 2px;font-weight:600}
+.card .d{font-size:12px;color:var(--ink3);margin:0 0 10px}
+.sec{font-family:var(--f-serif);font-size:20px;line-height:1.3;margin:12px 0 0;font-weight:400}
+.filters{display:grid;gap:10px 22px;grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+.fg{min-width:0}.fg .l{display:block;font-size:11px;letter-spacing:.06em;color:var(--ink3);margin-bottom:5px;font-weight:600}
+.chips{display:flex;flex-wrap:wrap;gap:5px}
+.chip{border:1px solid transparent;background:var(--chip);color:var(--ink);font:inherit;font-size:13px;padding:3px 12px;border-radius:16px;cursor:pointer}
+.chip:hover{border-color:var(--line2)}
+.chip[aria-pressed="true"]{background:var(--chip-on);color:var(--chip-on-ink)}
+button:focus-visible,select:focus-visible,tr:focus-visible{outline:2px solid var(--link);outline-offset:2px}
+.btn{border:1px solid var(--line2);background:transparent;color:var(--ink);font:inherit;font-size:13px;padding:3px 12px;border-radius:6px;cursor:pointer}
+.btn:hover{background:var(--grid)}
+select{font:inherit;font-size:13px;background:var(--surface);color:var(--ink);border:1px solid var(--line2);border-radius:6px;padding:4px 8px;max-width:100%}
+.tools{display:flex;gap:8px;align-items:end;flex-wrap:wrap}
+.kpis{display:grid;grid-template-columns:minmax(0,1.5fr) repeat(4,minmax(0,1fr));gap:12px}
+.kpi .k{font-size:12px;color:var(--ink2)}
+.kpi .v{font-size:26px;font-weight:600;line-height:1.2;margin-top:2px;font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+.kpi.hero .v{font-size:40px;color:var(--ink)}
+.kpi.hero{border-top:4px solid var(--green)}
+.kpi .n{font-size:12px;color:var(--ink3);margin-top:2px}
+.note{font-size:13px;color:var(--ink);background:color-mix(in srgb,var(--acc) 10%,var(--bg));border:1px solid color-mix(in srgb,var(--acc) 40%,var(--bg));border-radius:12px;padding:10px 16px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(310px,1fr));gap:12px}
+.hb{display:grid;grid-template-columns:96px minmax(0,1fr) 52px;gap:8px;align-items:center;font-size:12.5px;padding:3px 2px;border-radius:4px}
+.hb:hover{background:var(--grid)}
+.hb .lab{color:var(--ink2);line-height:1.15}.hb small{display:block;color:var(--ink3);font-size:10.5px}
+.hb .t{height:12px;background:var(--grid);border-radius:3px;position:relative}
+.hb .t b{position:absolute;left:0;top:0;bottom:0;background:var(--acc);border-radius:3px}
+.hb.hi .t b{background:var(--warn)}.hb.lo .t b{background:var(--mute)}
+.hb .t u{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--ink);opacity:.55}
+.hb .p{text-align:right}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--ink2);margin:0 0 8px}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px}
+.tw{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th,td{padding:7px 9px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
+th:first-child,td:first-child{text-align:left}
+th{font-size:12px;color:var(--ink2);font-weight:600;letter-spacing:.02em}
+.heat td{padding:0;border:0}.heat td.c{width:20%}
+.heat .cell{margin:2px;padding:8px 4px;border-radius:5px;text-align:center;font-family:var(--f-mono);font-size:12.5px;cursor:default}
+.heat .cell small{display:block;font-size:10px;opacity:.75}
+.heat th{border:0}.heat td:first-child{padding-right:8px;font-size:12px;color:var(--ink2)}
+.list tbody tr{cursor:pointer}.list tbody tr:hover{background:var(--grid)}
+.list tbody tr[aria-selected="true"]{background:var(--grid)}
+.tag{display:inline-block;padding:1px 7px;border-radius:5px;font-size:11.5px}
+.tag.r2{background:var(--warn);color:#001e2b;font-weight:600}.tag.r1{background:var(--chip);color:var(--ink)}.tag.r0{color:var(--ink3)}
+.split{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:12px;align-items:start}
+.detail dl{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;margin:8px 0 0;font-size:13px}
+.detail dt{color:var(--ink3)}.detail dd{margin:0;text-align:right}
+.hist{margin-top:10px;font-size:12.5px;border-top:1px solid var(--line);padding-top:8px}
+.tip{position:fixed;z-index:9;pointer-events:none;background:#001e2b;color:#e8edeb;border:1px solid #3d4f58;font-size:12px;padding:6px 9px;border-radius:6px;line-height:1.45;display:none;max-width:260px}
+.foot{color:var(--ink2);font-size:11.5px;max-width:110ch}
+@media (max-width:900px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.kpi.hero{grid-column:1/-1}.split{grid-template-columns:minmax(0,1fr)}}
+.busy .kpis,.busy .grid,.busy .heat,.busy .list{opacity:.55;transition:opacity .15s}
+.err{display:flex;gap:12px;align-items:center;background:color-mix(in srgb,var(--warn) 12%,var(--bg));border:1px solid color-mix(in srgb,var(--warn) 50%,var(--bg));border-radius:12px;padding:10px 16px;font-size:13px}
+html{color-scheme:light}body{margin:0}img{max-width:100%}[hidden]{display:none!important}
+</style>
+<div class="wrap" id="app">
+  <header><h1>당뇨 환자 30일 내 재입원 케이스 탐색기</h1>
+  <p class="sub">미국 130개 병원의 당뇨 환자 입원 기록(1999–2008, UCI 공개 데이터, 비식별)에서 어떤 입원이 30일 안에 다시 입원으로 이어졌는지 후향적으로 살펴봅니다. 필터를 바꿀 때마다 Supabase(Postgres)에서 집계를 새로 조회합니다.</p></header>
+
+  <section class="card"><div class="filters">
+    <div class="fg"><span class="l">연령대</span><div class="chips" id="f-age"></div></div>
+    <div class="fg"><span class="l">성별</span><div class="chips" id="f-sex"></div></div>
+    <div class="fg"><span class="l">입원 유형</span><div class="chips" id="f-adm"></div></div>
+    <div class="fg"><span class="l">퇴원처</span><div class="chips" id="f-dis"></div></div>
+    <div class="fg"><span class="l">주진단 질환군</span><div class="chips" id="f-dg"></div></div>
+    <div class="fg"><span class="l">옵션</span><div class="tools"><button class="chip" id="o-ex" type="button" aria-pressed="false">사망·호스피스 퇴원 제외</button><button class="btn" id="reset" type="button">필터 초기화</button></div></div>
+  </div></section>
+
+  <div class="err" id="err" hidden role="alert"><span></span><button class="btn" id="retry" type="button">다시 시도</button></div>
+  <section class="kpis" id="kpis"></section>
+  <div class="note" id="note"></div>
+
+  <h2 class="sec">이전 이용 이력</h2>
+  <div class="grid" id="g-hist"></div>
+  <h2 class="sec">치료·검사</h2>
+  <div class="grid" id="g-tx"></div>
+  <h2 class="sec">진단·퇴원 비교</h2>
+  <div class="grid" id="g-dx"></div>
+
+  <section class="card"><h2>이전 입원 횟수 × 입원일수별 재입원률</h2><p class="d">셀 색이 진할수록 재입원률이 높습니다. 건수가 30 미만인 셀은 흐리게 표시합니다.</p><div class="tw"><table class="heat" id="heat"></table></div></section>
+
+  <h2 class="sec">환자 케이스 목록</h2>
+  <section class="split">
+    <div class="card"><div class="tools" style="margin-bottom:8px">
+      <label class="fg"><span class="l">정렬</span><select id="s-sort"><option value="ninp">이전 입원 횟수</option><option value="los">입원일수</option><option value="meds">투약 수</option><option value="nemr">응급실 방문</option></select></label>
+      <button class="chip" id="s-rd" type="button" aria-pressed="false">30일 내 재입원 케이스만</button>
+      <span class="num" id="s-cnt" style="color:var(--ink3);font-size:12px"></span></div>
+      <div class="tw"><table class="list" id="list"></table></div></div>
+    <div class="card detail" id="detail"><h2>케이스 상세</h2><p class="d">목록에서 행을 선택하세요.</p></div>
+  </section>
+
+  <p class="foot">재입원 = 퇴원 후 30일 내 재입원(readmitted &lt; 30). 사망·호스피스 퇴원은 재입원이 불가능하므로 필요하면 위 옵션으로 제외하세요. 이전 이용 이력은 해당 입원 직전 1년간의 외래·응급실·입원 횟수입니다. 몸무게(97%), 검사 결과 일부(HbA1c 83%·혈당 95%)는 결측이 많아 HbA1c는 검사 여부와 결과로만 사용했습니다. 이 화면은 위험요인과 재입원의 연관성을 보여 주며 인과관계를 뜻하지 않습니다. 환자 목록의 같은 환자 이력은 encounter_id 순서를 시간 순서로 간주합니다.</p>
+</div>
+<div class="tip" id="tip"></div>
+<script>
+const SUPABASE_URL='https://hvwmvfzxaflxhiukzklz.supabase.co';
+const SUPABASE_KEY='sb_publishable_ly2AiRK7Ntnyh3d8pJM3Ug_ZmFJ-9wb'; // publishable(공개용) 키: 조회 전용 정책으로만 데이터에 접근한다
+const AGE=['0–10','10–20','20–30','30–40','40–50','50–60','60–70','70–80','80–90','90–100'];
+const ADM=['응급','긴급','선택','기타'],SRC=['의뢰','타시설 전원','응급실','기타'],DIS=['자택','자택+방문서비스','요양·재활시설','타병원·기관 전원','사망·호스피스','기타'];
+const DG=['순환기계','호흡기계','소화기계','손상·중독','당뇨병','근골격계','비뇨생식계','신생물','기타'],SEX=['여','남','미상'],RACE=['백인','흑인','히스패닉','아시아계','기타','미상'],A1C=['미검사','정상','>7','>8'],INS=['미사용','유지','감량','증량'];
+const st={age:new Set(),sex:new Set(),adm:new Set(),dis:new Set(),dg:new Set(),ex:false,rdOnly:false,sort:'ninp',sel:null};
+const $=id=>document.getElementById(id),tip=$('tip');
+const showTip=(e,h)=>{tip.innerHTML=h;tip.style.display='block';const w=tip.offsetWidth;let x=e.clientX+14;if(x+w>innerWidth-8)x=e.clientX-w-14;tip.style.left=x+'px';tip.style.top=(e.clientY+14)+'px'};
+const hideTip=()=>tip.style.display='none';
+const pct=x=>(x*100).toFixed(1)+'%';
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+async function rpc(name,args){
+  const r=await fetch(`${SUPABASE_URL}/rest/v1/rpc/${name}`,{method:'POST',headers:{apikey:SUPABASE_KEY,'Content-Type':'application/json'},body:JSON.stringify(args)});
+  if(!r.ok)throw new Error(`${name} ${r.status}`);
+  return r.json();
+}
+const filterJson=()=>({age:[...st.age],sex:[...st.sex],adm:[...st.adm],dis:[...st.dis],dg:[...st.dg],exclude_dead:st.ex});
+const FD=[['f-age',AGE.map((l,i)=>[i,l+'세']),'age'],['f-sex',[[0,'여'],[1,'남']],'sex'],['f-adm',ADM.map((l,i)=>[i,l]),'adm'],['f-dis',DIS.map((l,i)=>[i,l]),'dis'],['f-dg',DG.map((l,i)=>[i,l]),'dg']];
+function buildFilters(){FD.forEach(([id,items,key])=>{const el=$(id);el.innerHTML='';items.forEach(([k,l])=>{const b=document.createElement('button');b.type='button';b.className='chip';b.textContent=l;b.dataset.k=k;b.onclick=()=>{st[key].has(k)?st[key].delete(k):st[key].add(k);st.sel=null;render()};el.appendChild(b)})})}
+$('o-ex').onclick=()=>{st.ex=!st.ex;st.sel=null;render()};
+$('reset').onclick=()=>{FD.forEach(f=>st[f[2]].clear());st.ex=false;st.sel=null;render()};
+$('s-rd').onclick=()=>{st.rdOnly=!st.rdOnly;render()};
+$('s-sort').onchange=e=>{st.sort=e.target.value;render()};
+const wilson=(k,n)=>{if(!n)return[0,0];const z=1.96,p=k/n,d=1+z*z/n,c=p+z*z/(2*n),m=z*Math.sqrt(p*(1-p)/n+z*z/(4*n*n));return[(c-m)/d,(c+m)/d]};
+let allRate=0.1116,S=null,L=null,seq=0,timer=0;
+function bars(el,title,desc,labels,key,base){
+  const rows=labels.map((_,i)=>{const r=(S.factors[key]||[]).find(x=>x.b===i)||{n:0,k:0};return{n:r.n,k:r.k,r:r.n?r.k/r.n:0}});
+  const mx=Math.max(0.01,...rows.map(r=>r.r),base.r)*1.15;
+  const div=document.createElement('div');div.className='card';
+  div.innerHTML=`<h2>${title}</h2><p class="d">${desc} 세로선 = 선택 조건 평균 ${pct(base.r)}</p>`+rows.map((r,i)=>{
+    const hi=r.n>=100&&r.r>=base.r*1.2,lo=r.n<100;
+    return `<div class="hb ${hi?'hi':''} ${lo?'lo':''}" data-i="${i}"><div class="lab">${labels[i]}<small>${r.n.toLocaleString()}건</small></div><div class="t"><b style="width:${r.r/mx*100}%"></b><u style="left:${base.r/mx*100}%"></u></div><div class="p num">${r.n?pct(r.r):'–'}</div></div>`}).join('');
+  [...div.querySelectorAll('.hb')].forEach(h=>{const i=+h.dataset.i,r=rows[i],[lo,hi]=wilson(r.k,r.n);
+    h.onmousemove=e=>showTip(e,`<b>${title} · ${labels[i]}</b><br>재입원률 ${pct(r.r)} (95% CI ${pct(lo)}–${pct(hi)})<br>${r.k.toLocaleString()} / ${r.n.toLocaleString()}건<br>전체 대비 ${base.r?(r.r/base.r).toFixed(2):'–'}배${r.n<100?'<br>※ 건수가 적어 해석 주의':''}`);h.onmouseleave=hideTip});
+  el.appendChild(div)}
+function setBusy(b){$('app').classList.toggle('busy',b)}
+function showError(msg){const e=$('err');e.hidden=!msg;e.querySelector('span').textContent=msg||''}
+$('retry').onclick=()=>render();
+function render(){
+  FD.forEach(([id,,key])=>[...$(id).children].forEach(b=>b.setAttribute('aria-pressed',st[key].has(+b.dataset.k))));
+  $('o-ex').setAttribute('aria-pressed',st.ex);$('s-rd').setAttribute('aria-pressed',st.rdOnly);
+  setBusy(true);clearTimeout(timer);
+  timer=setTimeout(load,120);
+}
+async function load(){
+  const my=++seq,f=filterJson();
+  try{
+    const [s,l]=await Promise.all([rpc('dashboard_stats',{f}),rpc('case_list',{f,sort_key:st.sort,only_readmit:st.rdOnly,lim:40})]);
+    if(my!==seq)return; // 더 최신 요청이 있으면 버린다
+    S=s;L=l;showError('');paint();setBusy(false);
+  }catch(e){if(my!==seq)return;setBusy(false);showError('데이터를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요. ('+e.message+')')}
+}
+function paint(){
+  const k=S.kpi,g={n:k.n,k:k.k,r:k.n?k.k/k.n:0},[lo,hi]=wilson(g.k,g.n);
+  $('kpis').innerHTML=`<div class="card kpi hero"><div class="k">30일 내 재입원률</div><div class="v">${g.n?pct(g.r):'–'}</div><div class="n">95% 신뢰구간 ${g.n?pct(lo)+' – '+pct(hi):'–'} · 전체 ${pct(allRate)}</div></div>
+   <div class="card kpi"><div class="k">입원 건수</div><div class="v">${g.n.toLocaleString()}</div><div class="n">전체 101,766건 중</div></div>
+   <div class="card kpi"><div class="k">재입원 건수</div><div class="v">${g.k.toLocaleString()}</div><div class="n">퇴원 후 30일 내</div></div>
+   <div class="card kpi"><div class="k">환자 수</div><div class="v">${k.pts.toLocaleString()}</div><div class="n">고유 환자</div></div>
+   <div class="card kpi"><div class="k">평균 입원일수</div><div class="v">${g.n?(k.los_sum/g.n).toFixed(1):'–'}일</div><div class="n">입원당</div></div>`;
+  $('note').textContent=g.n<300?`선택한 조건의 입원이 ${g.n.toLocaleString()}건으로 적습니다. 비율은 변동이 크니 신뢰구간과 함께 해석하세요.`:
+    (st.ex?'사망·호스피스 퇴원을 제외한 입원만 분석합니다.':`선택한 입원 중 사망·호스피스 퇴원 ${S.dead.toLocaleString()}건은 재입원이 불가능해 재입원률을 낮춥니다. 제외하려면 옵션을 켜세요.`);
+  const hist=$('g-hist'),tx=$('g-tx'),dx=$('g-dx');[hist,tx,dx].forEach(e=>e.innerHTML='');
+  bars(hist,'최근 1년 입원 횟수','직전 1년간의 입원 횟수.',['0회','1회','2회','3회 이상'],'ninp',g);
+  bars(hist,'최근 1년 응급실 방문','직전 1년간의 응급실 방문.',['0회','1회','2회 이상'],'nemr',g);
+  bars(hist,'최근 1년 외래 방문','직전 1년간의 외래 방문.',['0회','1회','2회 이상'],'nout',g);
+  bars(tx,'입원일수','이번 입원의 일수.',['1–3일','4–7일','8일 이상'],'los',g);
+  bars(tx,'투약 수','입원 중 투여한 약물 종류.',['10종 이하','11–20종','21종 이상'],'meds',g);
+  bars(tx,'검사 수','입원 중 시행한 검사 건수.',['30건 미만','30–49건','50건 이상'],'labs',g);
+  bars(tx,'시술 수','검사 외 시술 건수.',['0건','1건','2건 이상'],'proc',g);
+  bars(tx,'HbA1c 검사','검사 여부와 결과.',A1C,'a1c',g);
+  bars(tx,'인슐린 사용','입원 중 인슐린 용량 변화.',INS,'ins',g);
+  bars(tx,'약물 변경 여부','입원 중 당뇨약 변경.',['변경 없음','변경함'],'chg',g);
+  bars(tx,'진단 수','입원 시 등록된 진단 개수.',['5개 이하','6–8개','9개 이상'],'ndx',g);
+  bars(dx,'주진단 질환군','주진단 ICD-9를 묶음.',DG,'dg',g);
+  bars(dx,'퇴원처','퇴원 후 이동한 곳.',DIS,'dis',g);
+  bars(dx,'입원 경로','입원 시 유입 경로.',SRC,'src',g);
+  heat();list();detail();
+}
+function heat(){
+  const ROW=['0회','1회','2회','3회 이상'],COL=['1–3일','4–7일','8일 이상'];
+  const cell=(a,b)=>S.heat.find(x=>x.a===a&&x.b===b)||{n:0,k:0};
+  const rates=[];ROW.forEach((_,a)=>COL.forEach((_,b)=>{const c=cell(a,b);if(c.n>=30)rates.push(c.k/c.n)}));
+  const mx=Math.max(0.05,...rates);
+  $('heat').innerHTML=`<thead><tr><th style="text-align:left">이전 입원 \\ 입원일수</th>${COL.map(c=>`<th style="text-align:center">${c}</th>`).join('')}</tr></thead><tbody>`+
+   ROW.map((r,a)=>`<tr><td>${r}</td>${COL.map((c,b)=>{const s=cell(a,b),ok=s.n>=30,rt=s.n?s.k/s.n:0,p=ok?Math.round(rt/mx*50):0;
+     return `<td class="c"><div class="cell" data-a="${a}" data-b="${b}" style="background:${ok?`color-mix(in srgb,var(--acc) ${p}%,var(--surface))`:'var(--grid)'};opacity:${ok?1:.55}">${s.n?pct(rt):'–'}<small>${s.n.toLocaleString()}건</small></div></td>`}).join('')}</tr>`).join('')+'</tbody>';
+  [...$('heat').querySelectorAll('.cell')].forEach(el=>{const s=cell(+el.dataset.a,+el.dataset.b);el.onmousemove=e=>showTip(e,`<b>${ROW[+el.dataset.a]} · ${COL[+el.dataset.b]}</b><br>재입원 ${s.k.toLocaleString()} / ${s.n.toLocaleString()}건`);el.onmouseleave=hideTip});
+}
+const RES=['재입원 없음','30일 초과','30일 내 재입원'];
+function list(){
+  const rows=L.rows;
+  $('s-cnt').textContent=`${L.total.toLocaleString()}건 중 상위 ${rows.length}건`;
+  $('list').innerHTML=`<thead><tr><th>입원 ID</th><th>연령</th><th>성별</th><th>주진단</th><th>입원일</th><th>투약</th><th>이전 입원</th><th>결과</th></tr></thead><tbody>`+
+   rows.map((r,n)=>`<tr tabindex="0" data-n="${n}" aria-selected="${!!st.sel&&st.sel.enc===r.enc}"><td class="num">${r.enc}</td><td>${AGE[r.age]}</td><td>${SEX[r.sex]}</td><td>${DG[r.dg]}</td><td class="num">${r.los}</td><td class="num">${r.meds}</td><td class="num">${r.ninp}</td><td><span class="tag r${r.rd}">${RES[r.rd]}</span></td></tr>`).join('')+'</tbody>';
+  [...$('list').querySelectorAll('tbody tr')].forEach(tr=>{const pick=()=>{st.sel=rows[+tr.dataset.n];list();detail()};tr.onclick=pick;tr.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();pick()}}});
+}
+async function detail(){
+  const el=$('detail'),i=st.sel;if(!i){el.innerHTML='<h2>케이스 상세</h2><p class="d">목록에서 행을 선택하세요.</p>';return}
+  const row=(k,v)=>`<dt>${k}</dt><dd class="num">${v}</dd>`;
+  const head=`<h2>입원 ${i.enc}</h2><p class="d">환자 ${i.pt} · ${AGE[i.age]}세 · ${SEX[i.sex]} · ${RACE[i.race]}</p><span class="tag r${i.rd}">${RES[i.rd]}</span>
+  <dl>${row('주진단',DG[i.dg]+' ('+esc(i.icd||'')+')')}${row('입원 유형 / 경로',ADM[i.adm]+' / '+SRC[i.src])}${row('퇴원처',DIS[i.dis])}${row('입원일수',i.los+'일')}${row('검사 / 시술',i.labs+' / '+i.proc)}${row('투약 수',i.meds+'종')}${row('진단 수',i.ndx)}${row('HbA1c',A1C[i.a1c])}${row('인슐린',INS[i.ins])}${row('약물 변경',i.chg?'변경함':'없음')}${row('최근 1년 입원 / 응급 / 외래',i.ninp+' / '+i.nemr+' / '+i.nout)}</dl>`;
+  el.innerHTML=head+'<div class="hist">이 환자의 기록을 불러오는 중…</div>';
+  try{
+    const same=await rpc('patient_history',{p:i.pt});
+    if(!st.sel||st.sel.enc!==i.enc)return;
+    el.innerHTML=head+`<div class="hist"><b>이 환자의 기록 ${same.length}건</b>`+(same.length>1?'<table style="margin-top:6px;font-size:12px"><tbody>'+same.map(j=>`<tr${j.enc===i.enc?' style="font-weight:600"':''}><td class="num">${j.enc}</td><td>${j.los}일</td><td>${DG[j.dg]}</td><td><span class="tag r${j.rd}">${['없음','30일 초과','30일 내'][j.rd]}</span></td></tr>`).join('')+'</tbody></table>':'<div style="color:var(--ink3);margin-top:4px">이 데이터에는 해당 환자의 다른 입원이 없습니다.</div>')+'</div>';
+  }catch(e){if(st.sel&&st.sel.enc===i.enc)el.innerHTML=head+'<div class="hist">환자 기록을 불러오지 못했습니다.</div>'}
+}
+buildFilters();
+rpc('dashboard_stats',{f:{}}).then(s=>{if(s.kpi.n)allRate=s.kpi.k/s.kpi.n}).catch(()=>{}).finally(render);
+</script>
